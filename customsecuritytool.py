@@ -6,18 +6,14 @@ import re
 import json
 import time
 import asyncio
-import smtplib
-from dotenv import load_dotenv  # For loading environment variables
+from dotenv import load_dotenv
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
-from threading import Thread
-from fail2ban.client import Fail2BanClient  # Example usage of fail2ban
 
 # ===== Load Environment Variables =====
-load_dotenv()  # Load sensitive data from .env file
+load_dotenv()
 
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")  # Email stored in environment variables
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
 TO_EMAIL = os.getenv("TO_EMAIL")
 
@@ -34,7 +30,7 @@ def send_email(subject, body, to_email):
 
     try:
         server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()  # Secure the connection with TLS
+        server.starttls()  # Secure the connection
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.sendmail(SENDER_EMAIL, to_email, message.as_string())
         server.close()
@@ -46,7 +42,7 @@ def send_email(subject, body, to_email):
 async def scan_vulnerabilities(target_ip):
     print(f"Starting vulnerability scan on {target_ip}")
     nm = nmap.PortScanner()
-    nm.scan(target_ip, arguments='-sV')  # -sV scans for service versions
+    nm.scan(target_ip, arguments='-sV')
     scan_data = {}
     for host in nm.all_hosts():
         scan_data['host'] = host
@@ -70,18 +66,18 @@ async def scan_vulnerabilities(target_ip):
     )
     return scan_data
 
-# ===== Firewall Management with fail2ban Integration =====
+# ===== Firewall Management for Windows =====
 def block_ip(ip):
-    client = Fail2BanClient()
     try:
-        client.set_add_jail_action('sshd', 'ban', ip)
+        command = f'netsh advfirewall firewall add rule name="Block {ip}" dir=in action=block remoteip={ip}'
+        subprocess.run(command, shell=True, check=True)
         print(f"Blocked IP: {ip}")
         send_email(
             subject="Blocked IP",
             body=f"Suspicious IP {ip} has been blocked.",
             to_email=TO_EMAIL
         )
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         print(f"Failed to block IP: {e}")
 
 # ===== Port Monitoring (Async) =====
@@ -103,8 +99,8 @@ async def monitor_ports(ip, ports):
         await asyncio.gather(*(check_open_port(ip, port) for port in ports))
         await asyncio.sleep(30)  # Wait 30 seconds before checking again
 
-# ===== Log Monitoring with fail2ban =====
-def monitor_log_for_failed_logins(log_file='/var/log/auth.log'):
+# ===== Log Monitoring =====
+def monitor_log_for_failed_logins(log_file='C:\\path\\to\\your\\logfile.log'):  # Adjust to your log file location
     print(f"Monitoring log for failed login attempts: {log_file}")
     failed_logins = []
     while True:
@@ -120,8 +116,8 @@ def monitor_log_for_failed_logins(log_file='/var/log/auth.log'):
                     to_email=TO_EMAIL
                 )
                 failed_logins.append(line)
-        
-        time.sleep(60)  # Check logs every 60 seconds
+
+        time.sleep(60)
 
 # ===== Report Generation =====
 def generate_report(scan_data, filename='security_report.json'):
@@ -135,21 +131,17 @@ async def scheduled_vulnerability_scan(ip, interval_hours=24):
     while True:
         scan_data = await scan_vulnerabilities(ip)
         generate_report(scan_data)
-        await asyncio.sleep(interval_hours * 3600)  # Convert hours to seconds
+        await asyncio.sleep(interval_hours * 3600)
 
 # ===== Main Function (Async) =====
 async def main():
-    # Configuration
-    target_ip = "192.168.1.1"  # Replace with your target IP
-    ports_to_monitor = [22, 80, 443]  # Example ports to monitor
+    target_ip = "192.168.1.1"
+    ports_to_monitor = [22, 80, 443]
 
-    # Start the tasks asynchronously
     tasks = [
         monitor_ports(target_ip, ports_to_monitor),
         scheduled_vulnerability_scan(target_ip),
     ]
-
-    # Run tasks concurrently
     await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
